@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.fish.worldgenfw.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "worldgenfw.refmap.json",
+  "mixins": [
+    "StructureStartMixin",
+    "StructureGenerateMixin"
+  ],
+  "client": [],
+  "server": [],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

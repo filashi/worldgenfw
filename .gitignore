@@ -1,0 +1,38 @@
+# Gradle 构建输出
+.gradle/
+build/
+out/
+classes/
+
+# 运行生成的配置文件
+run/
+config/
+logs/
+crash-reports/
+saves/
+resourcepacks/
+screenshots/
+
+# IDE 相关
+.idea/
+*.iml
+*.iws
+*.ipr
+.mvn/
+.classpath
+.project
+.settings/
+
+# 本地 Gradle 配置
+gradle.properties.local
+local.properties
+
+# 系统文件
+Thumbs.db
+.DS_Store
+
+# 模组开发特定
+*.log
+*.lock
+*.lck
+*.class

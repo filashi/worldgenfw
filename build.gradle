@@ -1,0 +1,94 @@
+// 1. 插件配置
+plugins {
+    id 'eclipse'
+    id 'net.neoforged.moddev' version '2.0.107' // 使用 ModDevGradle 插件
+}
+
+// 2. 基础项目信息
+base {
+    archivesName = "worldgenfw"
+}
+version = '1.0'
+group = 'com.yourname.worldgenfw' // 请替换为你的包名
+
+// 3. 指定Java版本 (Minecraft 1.21.1需要Java 21)
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+// 4. 核心配置：NeoForge 模组开发配置
+neoForge {
+    version = "21.1.205" // NeoForge版本，建议使用最新稳定版
+
+    runs {
+        client {
+            client() // 配置客户端运行
+        }
+        server {
+            server() // 配置服务端运行
+        }
+        data {
+            data() // 配置数据生成，用于生成配方、战利品表等
+            programArguments.addAll '--mod', 'worldgenfw', '--all', '--output', file('src/generated/resources/').getAbsolutePath(), '--existing', file('src/main/resources/').getAbsolutePath()
+        }
+        // 为每个运行环境统一配置JVM参数和日志级别
+        configureEach {
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+            logLevel = org.slf4j.event.Level.DEBUG
+        }
+    }
+
+    // 这里的 'worldgenfw' 就是你的模组ID (Mod ID)，非常重要！
+    mods {
+        worldgenfw {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+// 5. 源码及资源目录配置
+sourceSets.main.resources {
+    srcDir 'src/generated/resources'
+}
+
+// 6. 依赖项配置
+repositories {
+    mavenCentral()
+    // 如果你需要引用其他模组的API，可以在这里添加仓库
+    // maven {
+    //     name = "CurseMaven"
+    //     url = "https://www.cursemaven.com"
+    //     content {
+    //         includeGroup "curse.maven"
+    //     }
+    // }
+}
+
+dependencies {
+    // ==========================================
+    // 以下为你可能会用到的“前置模组”，均以注释形式提供
+    // 使用时，需要取消注释，并根据具体要求填写坐标
+    // ==========================================
+//    runtimeOnly "maven.modrinth:noisium:2.3.0+mc1.21-1.21.1-neoforge"
+//    runtimeOnly "maven.modrinth:modernfix:5.25.1+mc1.21.1-neoforge"
+
+    // ---- 增强你模组功能的API/Lib ----
+    // 如果你需要强大的地形生成辅助功能，可以考虑Blueprint
+    // compileOnly "com.teamabnormals:blueprint:1.21.1-7.1.4"
+    // 如果你打算兼容YUNG系列模组，可以考虑YUNG's API
+    // compileOnly "com.yungnickyoung.minecraft.yungsapi:YungsApi:1.21.1-NeoForge-5.1.6"
+    // 如果你想简化拼图结构创建流程，可以考虑Structure Gel API
+//     compileOnly "mod.legacy.structuregel:StructureGel:1.21.1-2.5.0"
+
+    // ---- 仅供测试和验证的模组 ----
+    // 你可以通过CurseMaven添加其他模组来验证你的API的兼容性
+    // runtimeOnly "curse.maven:blueprint-382216:..."
+
+    // ---- 编译时需要的额外配置（一般不需要改动） ----
+    // implementation 'org.spongepowered:mixin:0.8.5'
+    // annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+}
+
+// 7. 任务配置
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8' // 统一编码，避免乱码
+    it.options.compilerArgs.add("-Acustom.refmap=${project.projectDir}/src/main/resources/worldgenfw.mixins.json")
+}

@@ -1,0 +1,21 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="All rights reserved"
+
+[[mods]]
+modId="worldgenfw" # 必须与build.gradle中定义的一致
+version="1.0.0"
+displayName="WorldGen Framework"
+logoFile="worldgenfw.png"
+description='''
+A powerful framework for world generation, including depth expansion and structure clustering.
+'''
+[[dependencies.worldgenfw]]
+modId="neoforge"
+mandatory=true
+versionRange="[21.1.205,)"
+ordering="NONE"
+side="BOTH"
+
+[[mixins]]
+config="worldgenfw.mixins.json"
