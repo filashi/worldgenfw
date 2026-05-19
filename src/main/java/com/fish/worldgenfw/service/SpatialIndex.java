@@ -23,4 +23,7 @@ public interface SpatialIndex {
      * 清空索引。
      */
     void clear();
+
+    // 新增：获取索引中的所有记录（用于离线规划构建虚拟八叉树）
+    List<StructureBoundingBox> getAll();
 }

@@ -6,7 +6,8 @@
   "refmap": "worldgenfw.refmap.json",
   "mixins": [
     "StructureStartMixin",
-    "StructureGenerateMixin"
+    "StructureGenerateMixin",
+    "ChunkGeneratorMixin"
   ],
   "client": [],
   "server": [],

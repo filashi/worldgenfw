@@ -34,6 +34,14 @@ public class SimpleOctree implements SpatialIndex {
     }
 
     @Override
+    public List<StructureBoundingBox> getAll() {
+        List<StructureBoundingBox> all = new ArrayList<>();
+        root.collectAll(all);
+        return all;
+    }
+
+
+    @Override
     public void clear() {
         root.clear();
     }
@@ -140,6 +148,16 @@ public class SimpleOctree implements SpatialIndex {
             return range.minX < maxX && range.maxX > minX &&
                     range.minY < maxY && range.maxY > minY &&
                     range.minZ < maxZ && range.maxZ > minZ;
+        }
+
+        // 在 Node 内部类中添加方法：
+        void collectAll(List<StructureBoundingBox> collector) {
+            collector.addAll(items);
+            if (children != null) {
+                for (Node child : children) {
+                    child.collectAll(collector);
+                }
+            }
         }
     }
 }
