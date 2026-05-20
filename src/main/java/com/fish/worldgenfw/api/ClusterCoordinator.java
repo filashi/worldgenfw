@@ -15,7 +15,7 @@ public interface ClusterCoordinator {
      * @param estimatedBoundingBox 整个结构的预估包围盒（用于快速初步查询）
      * @param spatialIndex 空间索引
      * @param instanceId 当前结构实例的唯一 ID
-     * @param pieceBoxes 新结构所有片段的包围盒列表（相对于原始区块中心）
+     * @param pieceBoxes 新结构所有片段的包围盒列表
      * @return 最终区块位置
      */
     ChunkPos resolvePosition(ResourceLocation structureId,

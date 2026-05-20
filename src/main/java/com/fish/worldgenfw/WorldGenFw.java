@@ -13,7 +13,6 @@ import net.neoforged.fml.config.ModConfig;
 public class WorldGenFw {
     private static DefaultClusterCoordinator coordinator;
     private static MetaRegistryImpl metaRegistry;
-    private static PlacementMap placementMap;
 
     public WorldGenFw(IEventBus modEventBus, ModContainer modContainer) {
         modContainer.registerConfig(ModConfig.Type.SERVER, ClusterConfig.SPEC);
@@ -24,10 +23,8 @@ public class WorldGenFw {
         metaRegistry.presetProfile("minecraft:pillager_outpost", true, 32, 400, true, 1);
 
         coordinator = new DefaultClusterCoordinator(metaRegistry);
-        placementMap = new PlacementMap();
     }
 
     public static ClusterCoordinator getCoordinator() { return coordinator; }
-    public static PlacementMap getPlacementMap() { return placementMap; }
     public static MetaRegistryImpl getMetaRegistry() { return metaRegistry; }
 }

@@ -7,6 +7,7 @@ import java.util.List;
 
 /**
  * 基于八叉树的空间索引实现，存储 StructureBoundingBox。
+ * 线程安全：所有公开方法均使用 synchronized 保护。
  */
 public class SimpleOctree implements SpatialIndex {
 
@@ -22,27 +23,26 @@ public class SimpleOctree implements SpatialIndex {
     }
 
     @Override
-    public void insert(StructureBoundingBox box) {
+    public synchronized void insert(StructureBoundingBox box) {
         root.insert(box);
     }
 
     @Override
-    public List<StructureBoundingBox> query(AABB range) {
+    public synchronized List<StructureBoundingBox> query(AABB range) {
         List<StructureBoundingBox> results = new ArrayList<>();
         root.query(range, results);
         return results;
     }
 
     @Override
-    public List<StructureBoundingBox> getAll() {
+    public synchronized List<StructureBoundingBox> getAll() {
         List<StructureBoundingBox> all = new ArrayList<>();
         root.collectAll(all);
         return all;
     }
 
-
     @Override
-    public void clear() {
+    public synchronized void clear() {
         root.clear();
     }
 
@@ -150,7 +150,6 @@ public class SimpleOctree implements SpatialIndex {
                     range.minZ < maxZ && range.maxZ > minZ;
         }
 
-        // 在 Node 内部类中添加方法：
         void collectAll(List<StructureBoundingBox> collector) {
             collector.addAll(items);
             if (children != null) {

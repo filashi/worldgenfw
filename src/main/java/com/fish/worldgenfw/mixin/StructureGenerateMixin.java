@@ -1,27 +1,17 @@
-// com/fish/worldgenfw/mixin/StructureGenerateMixin.java
 package com.fish.worldgenfw.mixin;
 
 import com.fish.worldgenfw.WorldGenFw;
+import com.fish.worldgenfw.api.ClusterCoordinator;
 import com.fish.worldgenfw.service.*;
 import com.fish.worldgenfw.util.GlobalIdGenerator;
 import com.fish.worldgenfw.util.InstanceIdContext;
-import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
-import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.level.LevelHeightAccessor;
-import net.minecraft.world.level.biome.Biome;
-import net.minecraft.world.level.biome.BiomeSource;
-import net.minecraft.world.level.chunk.ChunkGenerator;
-import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.structure.*;
 import net.minecraft.world.level.levelgen.structure.pieces.PiecesContainer;
-import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 import org.slf4j.Logger;
@@ -31,61 +21,76 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
-import java.util.function.Predicate;
+import java.util.ArrayList;
+import java.util.List;
 
 @Mixin(Structure.class)
 public class StructureGenerateMixin {
     private static final Logger LOGGER = LoggerFactory.getLogger("WorldGenFramework/Relocation");
 
+    @Unique
+    private static ClusterCoordinator getCoordinator() {
+        return WorldGenFw.getCoordinator();
+    }
+
+    // 劫持 new StructureStart 构造，实现重定位
     @Redirect(method = "generate",
             at = @At(value = "NEW",
-                    target = "net/minecraft/world/level/levelgen/structure/Structure$GenerationContext"))
-    private static Structure.GenerationContext redirectGenerationContext(
-            RegistryAccess registryAccess,
-            ChunkGenerator chunkGenerator,
-            BiomeSource biomeSource,
-            RandomState randomState,
-            StructureTemplateManager structureTemplateManager,
-            long seed,
-            ChunkPos originalChunkPos,
-            LevelHeightAccessor heightAccessor,
-            Predicate<Holder<Biome>> validBiome) {
+                    target = "net/minecraft/world/level/levelgen/structure/StructureStart"))
+    private static StructureStart redirectNewStart(Structure structure, ChunkPos chunkPos, int references, PiecesContainer pieces) {
+        String structureId = resolveStructureId(structure);
+        ResourceLocation id = ResourceLocation.parse(structureId);
 
-        // 获取结构ID（通过 ThreadLocal 从外部传入，或通过结构实例？无法直接获取）
-        // 我们使用近似：根据 originalChunkPos 和种子反推结构ID？困难。
-        // 暂定：从 WorldGenFw 的当前规划任务中获取。我们需要在 WorldGenFw 中维护一个 Map<ChunkPos, ResourceLocation>。
-        // 这里简化：使用 unknown。
-        ResourceLocation structureId = ResourceLocation.withDefaultNamespace("unknown");
-        ChunkPos finalPos = originalChunkPos;
+        // 分配实例ID
+        int instanceId = GlobalIdGenerator.nextId();
+        InstanceIdContext.setNextId(instanceId);  // 传递给 StructureStart 构造
 
-        // 查询 PlacementMap（全局静态）
-        PlacementMap map = WorldGenFw.getPlacementMap();
-        if (map != null) {
-            ChunkPos planned = map.get(structureId);
-            if (planned != null) {
-                finalPos = planned;
-                LOGGER.info("使用离线规划坐标：{} -> {}", originalChunkPos, finalPos);
+        // 提取片断包围盒
+        List<AABB> pieceBoxes = new ArrayList<>();
+        AABB overallBox = null;
+        if (!pieces.isEmpty()) {
+            var tempBox = pieces.calculateBoundingBox();
+            overallBox = AABB.of(tempBox);
+            for (StructurePiece piece : pieces.pieces()) {
+                pieceBoxes.add(AABB.of(piece.getBoundingBox()));
             }
         }
 
-        // 预分配 instanceId
-        int instanceId = GlobalIdGenerator.nextId();
-        InstanceIdContext.setNextId(instanceId);
+        // 注册生成意图（暂不启用暂缓，但注册用于后续兼容）
+        if (overallBox != null) {
+            GenerationIntentCache.put(instanceId,
+                    new GenerationIntentCache.PlannedStructure(instanceId, structureId, overallBox,
+                            GenerationIntentCache.Status.PLANNED));
+        }
 
-        // 注册生成意图（但离线规划可能已覆盖，仍保留）
-        double halfSize = 100;
-        AABB estimatedBox = new AABB(
-                originalChunkPos.getMiddleBlockX() - halfSize, -64,
-                originalChunkPos.getMiddleBlockZ() - halfSize,
-                originalChunkPos.getMiddleBlockX() + halfSize, 320,
-                originalChunkPos.getMiddleBlockZ() + halfSize
-        );
-        GenerationIntentCache.put(instanceId,
-                new GenerationIntentCache.PlannedStructure(instanceId, structureId.toString(), estimatedBox,
-                        GenerationIntentCache.Status.PLANNED));
+        // 调用协调器进行重定向
+        SpatialIndex index = GlobalIndexManager.INDEX;
+        ClusterCoordinator coordinator = getCoordinator();
+        ChunkPos newPos = chunkPos;
+        if (overallBox != null) {
+            newPos = coordinator.resolvePosition(id, chunkPos, overallBox, index, instanceId, pieceBoxes);
+        }
 
-        return new Structure.GenerationContext(
-                registryAccess, chunkGenerator, biomeSource, randomState,
-                structureTemplateManager, seed, finalPos, heightAccessor, validBiome);
+        if (!newPos.equals(chunkPos)) {
+            LOGGER.info("结构 {} 重定位成功: {} -> {} (偏移 {} 格)",
+                    structureId, chunkPos, newPos, chunkPos.getChessboardDistance(newPos));
+        } else {
+            LOGGER.debug("结构 {} 保持位置: {}", structureId, chunkPos);
+        }
+
+        return new StructureStart(structure, newPos, references, pieces);
+    }
+
+    @Unique
+    private static String resolveStructureId(Structure structure) {
+        try {
+            MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+            if (server == null) return "unknown";
+            Registry<Structure> registry = server.registryAccess().registryOrThrow(Registries.STRUCTURE);
+            ResourceLocation id = registry.getKey(structure);
+            return id != null ? id.toString() : "unknown";
+        } catch (Exception e) {
+            return "unknown";
+        }
     }
 }
