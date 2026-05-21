@@ -4,12 +4,11 @@ import com.fish.worldgenfw.config.ClusterConfig;
 import com.fish.worldgenfw.structure.StructureTemplateLoader;
 import com.mojang.logging.LogUtils;
 import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
-import net.neoforged.neoforge.event.AddReloadListenerEvent;
-import net.neoforged.neoforge.event.server.ServerAboutToStartEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import org.slf4j.Logger;
@@ -20,10 +19,15 @@ public class WorldGenFw {
     private static final Logger LOGGER = LogUtils.getLogger();
 
     public WorldGenFw(IEventBus modEventBus) {
+        // 只注册游戏总线事件，不再需要 modEventBus
         NeoForge.EVENT_BUS.register(new ServerEventHandler());
     }
 
-    private static class ServerEventHandler {
+    /**
+     * 静态内部类：处理游戏总线的生命周期事件，并直接实现资源重载接口。
+     */
+    private static class ServerEventHandler implements ResourceManagerReloadListener {
+
         @SubscribeEvent
         public void onServerStarted(ServerStartedEvent event) {
             ResourceManager resourceManager = event.getServer().getResourceManager();
@@ -31,17 +35,15 @@ public class WorldGenFw {
             LOGGER.info("WorldGenFW blueprints loaded.");
         }
 
-        @SubscribeEvent
-        public void onAddReloadListener(AddReloadListenerEvent event) {
-            event.addListener((barrier, resourceManager, prepProfiler, reloadProfiler, backgroundExecutor, gameExecutor) -> {
-                // 关键：将操作提交到同步执行器，避免和 ModernFix 等优化模组的重载流水线产生死锁
-                gameExecutor.execute(() -> {
-                    ClusterConfig.getInstance().loadBlueprints(resourceManager);
-                    StructureTemplateLoader.clearCache();
-                    LOGGER.info("WorldGenFW blueprints reloaded.");
-                });
-                return java.util.concurrent.CompletableFuture.completedFuture(null);
-            });
+        /**
+         * 实现 ResourceManagerReloadListener 接口，在每次资源重载时被调用。
+         * 此方法是同步的，直接在主线程执行，无需通过事件动态注册监听器。
+         */
+        @Override
+        public void onResourceManagerReload(ResourceManager resourceManager) {
+            ClusterConfig.getInstance().loadBlueprints(resourceManager);
+            StructureTemplateLoader.clearCache();
+            LOGGER.info("WorldGenFW blueprints reloaded via ResourceManagerReloadListener.");
         }
 
         @SubscribeEvent

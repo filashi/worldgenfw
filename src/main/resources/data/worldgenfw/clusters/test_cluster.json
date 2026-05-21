@@ -1,0 +1,9 @@
+{
+  "cluster_id": "worldgenfw:test_cluster",
+  "structures": [
+    {
+      "resource_location": "minecraft:desert_pyramid",
+      "offset": [0, 0, 0]
+    }
+  ]
+}
