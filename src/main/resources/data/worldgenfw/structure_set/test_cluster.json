@@ -1,0 +1,14 @@
+{
+  "structures": [
+    {
+      "structure": "worldgenfw:test_cluster",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 60,
+    "separation": 30,
+    "salt": 123456789
+  }
+}

@@ -1,49 +1,67 @@
 package com.fish.worldgenfw;
 
+import com.fish.worldgenfw.command.ClusterCommand;
+import com.fish.worldgenfw.command.ReloadBlueprintsCommand;
 import com.fish.worldgenfw.config.ClusterConfig;
+import com.fish.worldgenfw.structure.ClusterPiece;
+import com.fish.worldgenfw.structure.ClusterStructure;
 import com.fish.worldgenfw.structure.StructureTemplateLoader;
 import com.mojang.logging.LogUtils;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
+import net.minecraft.world.level.levelgen.structure.StructureType;
+import net.minecraft.world.level.levelgen.structure.pieces.StructurePieceType;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
+import net.neoforged.neoforge.registries.DeferredRegister;
 import org.slf4j.Logger;
+
+import java.util.function.Supplier;
 
 @Mod(WorldGenFw.MODID)
 public class WorldGenFw {
     public static final String MODID = "worldgenfw";
     private static final Logger LOGGER = LogUtils.getLogger();
 
+    public static final DeferredRegister<StructurePieceType> STRUCTURE_PIECE_TYPES =
+            DeferredRegister.create(Registries.STRUCTURE_PIECE, MODID);
+
+    public static final Supplier<StructurePieceType> CLUSTER_PIECE_TYPE =
+            STRUCTURE_PIECE_TYPES.register("cluster_piece",
+                    () -> (StructurePieceType.ContextlessType) ClusterPiece::new);
+
+    public static final DeferredRegister<StructureType<?>> STRUCTURE_TYPES =
+            DeferredRegister.create(Registries.STRUCTURE_TYPE, MODID);
+
+    public static final Supplier<StructureType<ClusterStructure>> CLUSTER_STRUCTURE_TYPE =
+            STRUCTURE_TYPES.register("cluster_structure",
+                    () -> () -> ClusterStructure.CODEC);
+
     public WorldGenFw(IEventBus modEventBus) {
-        // 只注册游戏总线事件，不再需要 modEventBus
+        STRUCTURE_PIECE_TYPES.register(modEventBus);
+        STRUCTURE_TYPES.register(modEventBus);
         NeoForge.EVENT_BUS.register(new ServerEventHandler());
     }
 
     /**
      * 静态内部类：处理游戏总线的生命周期事件，并直接实现资源重载接口。
      */
-    private static class ServerEventHandler implements ResourceManagerReloadListener {
-
+    private static class ServerEventHandler {
         @SubscribeEvent
         public void onServerStarted(ServerStartedEvent event) {
             ResourceManager resourceManager = event.getServer().getResourceManager();
             ClusterConfig.getInstance().loadBlueprints(resourceManager);
-            LOGGER.info("WorldGenFW blueprints loaded.");
-        }
 
-        /**
-         * 实现 ResourceManagerReloadListener 接口，在每次资源重载时被调用。
-         * 此方法是同步的，直接在主线程执行，无需通过事件动态注册监听器。
-         */
-        @Override
-        public void onResourceManagerReload(ResourceManager resourceManager) {
-            ClusterConfig.getInstance().loadBlueprints(resourceManager);
-            StructureTemplateLoader.clearCache();
-            LOGGER.info("WorldGenFW blueprints reloaded via ResourceManagerReloadListener.");
+            // 注册测试命令和重载命令
+            ClusterCommand.register(event.getServer().getCommands().getDispatcher());
+            ReloadBlueprintsCommand.register(event.getServer().getCommands().getDispatcher());
+
+            LOGGER.info("WorldGenFW blueprints loaded and commands registered.");
         }
 
         @SubscribeEvent

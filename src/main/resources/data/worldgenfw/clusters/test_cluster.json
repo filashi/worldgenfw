@@ -2,8 +2,14 @@
   "cluster_id": "worldgenfw:test_cluster",
   "structures": [
     {
-      "resource_location": "minecraft:desert_pyramid",
-      "offset": [0, 0, 0]
+      "resource_location": "minecraft:village/plains/houses/plains_small_house_1",
+      "offset": [0, 0, 0],
+      "rotation": "none"
+    },
+    {
+      "resource_location": "minecraft:village/plains/houses/plains_small_house_2",
+      "offset": [12, 0, 0],
+      "rotation": "clockwise_90"
     }
   ]
 }

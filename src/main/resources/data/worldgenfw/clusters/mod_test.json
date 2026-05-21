@@ -1,0 +1,17 @@
+{
+  "cluster_id": "worldgenfw:mod_test",
+  "structures": [
+    {
+      "resource_location": "ati_structures:ancient_vessel",
+      "offset": [0, 0, 0],
+      "rotation": "none",
+      "required": true
+    },
+    {
+      "resource_location": "ati_structures:ati_stoneworks",
+      "offset": [36, 0, 0],
+      "rotation": "none",
+      "required": true
+    }
+  ]
+}
