@@ -7,7 +7,10 @@ import com.fish.worldgenfw.structure.ClusterPiece;
 import com.fish.worldgenfw.structure.ClusterStructure;
 import com.fish.worldgenfw.structure.StructureTemplateLoader;
 import com.mojang.logging.LogUtils;
+import com.mojang.serialization.MapCodec;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
 import net.minecraft.world.level.levelgen.structure.StructureType;
@@ -16,6 +19,7 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.server.ServerAboutToStartEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -40,7 +44,12 @@ public class WorldGenFw {
 
     public static final Supplier<StructureType<ClusterStructure>> CLUSTER_STRUCTURE_TYPE =
             STRUCTURE_TYPES.register("cluster_structure",
-                    () -> () -> ClusterStructure.CODEC);
+                    () -> new StructureType<ClusterStructure>() {
+                        @Override
+                        public MapCodec<ClusterStructure> codec() {
+                            return ClusterStructure.CODEC;
+                        }
+                    });
 
     public WorldGenFw(IEventBus modEventBus) {
         STRUCTURE_PIECE_TYPES.register(modEventBus);
@@ -51,23 +60,34 @@ public class WorldGenFw {
     /**
      * 静态内部类：处理游戏总线的生命周期事件，并直接实现资源重载接口。
      */
-    private static class ServerEventHandler {
+    private static class ServerEventHandler implements ResourceManagerReloadListener {
         @SubscribeEvent
-        public void onServerStarted(ServerStartedEvent event) {
-            ResourceManager resourceManager = event.getServer().getResourceManager();
-            ClusterConfig.getInstance().loadBlueprints(resourceManager);
+        public void onServerAboutToStart(ServerAboutToStartEvent event) {
+            MinecraftServer server = event.getServer();
+            ClusterConfig.getInstance().setServer(server);
+            // 可选：预加载常用蓝图以便命令可用
+            ResourceManager resourceManager = server.getResourceManager();
+            ClusterConfig.getInstance().loadBlueprintDirect(resourceManager, ResourceLocation.fromNamespaceAndPath(WorldGenFw.MODID, "test_cluster"));
+            ClusterConfig.getInstance().loadBlueprintDirect(resourceManager, ResourceLocation.fromNamespaceAndPath(WorldGenFw.MODID, "mod_test"));
 
-            // 注册测试命令和重载命令
-            ClusterCommand.register(event.getServer().getCommands().getDispatcher());
-            ReloadBlueprintsCommand.register(event.getServer().getCommands().getDispatcher());
-
+            ClusterCommand.register(server.getCommands().getDispatcher());
+            ReloadBlueprintsCommand.register(server.getCommands().getDispatcher());
             LOGGER.info("WorldGenFW blueprints loaded and commands registered.");
+        }
+
+        @Override
+        public void onResourceManagerReload(ResourceManager resourceManager) {
+            // 只清理结构模板缓存，蓝图保留（因为可以通过 server 重新加载）
+            StructureTemplateLoader.clearCache();
+            LOGGER.info("WorldGenFW template caches cleared after reload.");
         }
 
         @SubscribeEvent
         public void onServerStopped(ServerStoppedEvent event) {
             StructureTemplateLoader.clearCache();
-            LOGGER.info("WorldGenFW template cache cleared.");
+            ClusterConfig.getInstance().clearCache();
+            ClusterConfig.getInstance().setServer(null);
+            LOGGER.info("WorldGenFW caches cleared on shutdown.");
         }
     }
 }

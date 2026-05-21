@@ -30,16 +30,16 @@ public class ClusterStructure extends Structure {
 
     private final ResourceLocation clusterId;
 
-    public ClusterStructure(StructureSettings settings, ResourceLocation clusterId) {
+    public ClusterStructure(Structure.StructureSettings settings, ResourceLocation clusterId) {
         super(settings);
         this.clusterId = clusterId;
     }
 
     @Override
     protected Optional<GenerationStub> findGenerationPoint(GenerationContext context) {
-        ClusterBlueprint blueprint = ClusterConfig.getInstance().getBlueprint(clusterId).orElse(null);
+        // 直接从缓存获取，不访问资源系统（蓝图已在服务器启动时预加载）
+        ClusterBlueprint blueprint = ClusterConfig.getInstance().getOrLoadBlueprint(clusterId).orElse(null);
         if (blueprint == null) {
-            LOGGER.warn("Cluster blueprint not found: {}", clusterId);
             return Optional.empty();
         }
 
@@ -50,8 +50,8 @@ public class ClusterStructure extends Structure {
         ClusterPiece piece = new ClusterPiece(
                 clusterId,
                 bounds,
-                context.structureTemplateManager(), // 传入 StructureTemplateManager
-                context.random() // 传入 Random
+                context.structureTemplateManager(),
+                context.random()
         );
 
         return Optional.of(new GenerationStub(origin, piecesBuilder -> {
