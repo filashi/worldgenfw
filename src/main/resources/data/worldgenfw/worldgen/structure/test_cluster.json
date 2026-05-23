@@ -1,8 +1,0 @@
-{
-  "type": "worldgenfw:cluster_structure",
-  "biomes": "#minecraft:is_forest",
-  "step": "surface_structures",
-  "spawn_overrides": {},
-  "cluster_id": "worldgenfw:test_cluster",
-  "terrain_adaptation": "beard_thin"
-}
