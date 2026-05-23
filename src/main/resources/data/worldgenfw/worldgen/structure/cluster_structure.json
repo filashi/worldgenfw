@@ -2,5 +2,6 @@
   "type": "worldgenfw:cluster_structure",
   "biomes": "#worldgenfw:has_structure/cluster_structure",
   "step": "surface_structures",
-  "spawn_overrides": {}
+  "spawn_overrides": {},
+  "cluster_id": "worldgenfw:test_cluster"
 }

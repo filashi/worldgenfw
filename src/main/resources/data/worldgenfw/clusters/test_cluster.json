@@ -1,0 +1,7 @@
+{
+  "clusterId": "worldgenfw:test_cluster",
+  "members": [
+    { "template": "ati_structures:ancient_vessel", "offset": [0, 0, 0], "rotation": "NONE" },
+    { "template": "ati_structures:ati_stoneworks", "offset": [48, 0, 0], "rotation": "NONE" }
+  ]
+}
