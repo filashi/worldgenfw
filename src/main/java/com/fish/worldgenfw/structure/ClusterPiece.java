@@ -1,8 +1,8 @@
 package com.fish.worldgenfw.structure;
 
 import com.fish.worldgenfw.WorldGenFw;
+import com.mojang.logging.LogUtils;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Vec3i;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -17,11 +17,13 @@ import net.minecraft.world.level.levelgen.structure.pieces.StructurePieceSeriali
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
+import org.slf4j.Logger;
+
 import java.util.Optional;
 
 public class ClusterPiece extends StructurePiece {
-    // 示例：硬编码要放置的结构及其偏移量
-    // 你可以在这里实现自己的蓝图加载逻辑
+    private static final Logger LOGGER = LogUtils.getLogger();
+
     private static final String[] TEMPLATES = {
             "ati_structures:ancient_vessel",
             "ati_structures:ati_stoneworks"
@@ -41,13 +43,13 @@ public class ClusterPiece extends StructurePiece {
 
     @Override
     protected void addAdditionalSaveData(StructurePieceSerializationContext context, CompoundTag tag) {
-        // 如果有需要保存的数据，在此添加
     }
 
     @Override
     public void postProcess(WorldGenLevel worldGenLevel, StructureManager structureManager,
                             ChunkGenerator chunkGenerator, RandomSource random,
                             BoundingBox chunkBounds, ChunkPos chunkPos, BlockPos piecePos) {
+        LOGGER.info("postProcess called at {}", piecePos); // 调试日志
         if (!(worldGenLevel instanceof ServerLevel level)) {
             return;
         }
@@ -61,8 +63,10 @@ public class ClusterPiece extends StructurePiece {
             if (templateOpt.isPresent()) {
                 BlockPos targetPos = piecePos.offset(OFFSETS[i][0], OFFSETS[i][1], OFFSETS[i][2]);
                 StructurePlaceSettings settings = new StructurePlaceSettings();
-                // 可选：设置旋转、镜像等
                 templateOpt.get().placeInWorld(level, targetPos, targetPos, settings, level.getRandom(), 2);
+                LOGGER.info("Placed template {} at {}", templateId, targetPos); // 调试日志
+            } else {
+                LOGGER.error("Template not found: {}", templateId);
             }
         }
     }

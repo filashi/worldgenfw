@@ -22,7 +22,7 @@ public class WorldGenFw {
     public static final Supplier<StructureType<ClusterStructure>> CLUSTER_STRUCTURE_TYPE =
             STRUCTURE_TYPES.register("cluster_structure", () -> () -> ClusterStructure.CODEC);
     public static final Supplier<StructurePieceType> CLUSTER_PIECE_TYPE =
-            STRUCTURE_PIECE_TYPES.register("cluster_piece", () -> (structurePieceType, compoundTag) -> new ClusterPiece(compoundTag));
+            STRUCTURE_PIECE_TYPES.register("cluster_piece", () -> (type, tag) -> new ClusterPiece(tag));
 
     public WorldGenFw(IEventBus modEventBus) {
         STRUCTURE_TYPES.register(modEventBus);
