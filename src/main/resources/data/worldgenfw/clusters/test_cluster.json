@@ -2,9 +2,13 @@
   "clusterId": "worldgenfw:test_cluster",
   "layout": "random_pack",
   "minSeparation": 8,
+  "minPoolSize": 2,
+  "maxPoolSize": 7,
   "members": [
-    { "template": "ati_structures:ancient_vessel", "rotation": "NONE" },
-    { "template": "ati_structures:ati_stoneworks", "rotation": "NONE" },
-    { "template": "minecraft:village/plains/houses/plains_small_house_1", "rotation": "NONE" }
+    { "template": "ati_structures:illager_tower", "rotation": "NONE", "yOffset": 0 , "weight": 3},
+    { "template": "ati_structures:ati_stoneworks", "rotation": "NONE", "yOffset": 0 , "weight": 3},
+    { "template": "minecraft:village/plains/houses/plains_small_house_1", "rotation": "NONE", "yOffset": 0 , "weight": 3},
+    { "template": "minecraft:village/plains/houses/plains_small_house_2", "rotation": "NONE" ,"yOffset": 0, "weight": 3},
+    { "template": "ati_structures:old_home", "rotation": "NONE", "yOffset": 0 , "weight": 3}
   ]
 }

@@ -7,6 +7,7 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
@@ -48,35 +49,68 @@ public class ClusterStructure extends Structure {
         BlockPos origin = chunkPos.getMiddleBlockPosition(0);
         StructureTemplateManager templateManager = context.structureTemplateManager();
         RandomState randomState = context.randomState();
+        RandomSource random = context.random(); // 使用 context 提供的随机源，保证确定性
 
-        List<ClusterConfig.Member> members = blueprint.members();
+        List<ClusterConfig.Member> members = new ArrayList<>(blueprint.members());
 
-        // 判断布局模式
-        boolean isAutoLayout = "random_pack".equals(blueprint.layout());
-        if (isAutoLayout) {
-            // 自动布局：收集模板ID，调用引擎计算偏移
-            List<String> templateIds = new ArrayList<>();
-            for (var m : members) {
-                templateIds.add(m.template());
-            }
+        // ========== P0 随机抽取 ==========
+        int actualPoolSize = blueprint.poolSize();
+        if (actualPoolSize <= 0 && blueprint.maxPoolSize() > 0) {
+            // 使用随机范围
+            int min = Math.max(1, blueprint.minPoolSize());
+            int max = Math.min(blueprint.maxPoolSize(), members.size());
+            if (min > max) min = max;
+            actualPoolSize = min + random.nextInt(max - min + 1);
+        }
+        if (actualPoolSize > 0 && actualPoolSize < members.size()) {
+            members = weightedRandomSelect(members, actualPoolSize, random);
+            LOGGER.info("Randomly selected {} members from pool of {} for cluster {}",
+                    actualPoolSize, blueprint.members().size(), clusterId);
+        }
+
+        // ========== 自动化布局模式 ==========
+        if ("random_pack".equals(blueprint.layout())) {
             int sep = blueprint.minSeparation() > 0 ? blueprint.minSeparation() : 8;
-            List<BlockPos> offsets = LayoutEngine.computeOffsets(templateIds, sep, templateManager);
 
-            // 重新构造成员列表（带自动计算的偏移）
+            // 筛选可加载的模板
+            List<String> validTemplateIds = new ArrayList<>();
+            for (var m : members) {
+                var res = ResourceLocation.parse(m.template());
+                if (templateManager.get(res).isPresent()) {
+                    validTemplateIds.add(m.template());
+                } else {
+                    LOGGER.warn("Template {} not found, skipping.", m.template());
+                }
+            }
+
+            if (validTemplateIds.isEmpty()) {
+                LOGGER.error("No valid templates in cluster {}, aborting.", clusterId);
+                return Optional.empty();
+            }
+
+            // 计算偏移（只对有效模板）
+            Map<String, BlockPos> offsetMap = LayoutEngine.computeOffsets(validTemplateIds, sep, templateManager, context.random());
+
+            // 重新构造成员列表，保留原始成员的 yOffset、weight 等字段
             List<ClusterConfig.Member> autoMembers = new ArrayList<>();
-            for (int i = 0; i < members.size(); i++) {
-                var m = members.get(i);
-                BlockPos off = offsets.get(i);
-                autoMembers.add(new ClusterConfig.Member(
-                        m.template(),
-                        new int[]{ off.getX(), off.getY(), off.getZ() },
-                        m.rotation()
-                ));
+            for (var m : members) {
+                BlockPos off = offsetMap.get(m.template());
+                if (off != null) {
+                    autoMembers.add(new ClusterConfig.Member(
+                            m.template(),
+                            new int[]{ off.getX(), off.getY(), off.getZ() },
+                            m.rotation(),
+                            m.yOffset()
+                    ));
+                }
             }
             members = autoMembers;
         }
 
-        // 统一处理（无论是手动偏移还是自动计算）
+        if (members.isEmpty()) {
+            return Optional.empty();
+        }
+
         final var finalMembers = members;
         return Optional.of(new GenerationStub(origin, piecesBuilder -> {
             for (var member : finalMembers) {
@@ -92,11 +126,46 @@ public class ClusterStructure extends Structure {
                                 origin.getX() + offset[0] + 8, origin.getY() + offset[1] + 255,
                                 origin.getZ() + offset[2] + 8
                         ),
-                        true
+                        true,
+                        member.yOffset()
                 );
                 piecesBuilder.addPiece(piece);
             }
         }));
+    }
+
+    /**
+     * 加权随机抽取 poolSize 个成员（不重复）。
+     */
+    private static List<ClusterConfig.Member> weightedRandomSelect(
+            List<ClusterConfig.Member> pool, int count, RandomSource random) {
+        // 复制列表，避免修改原列表
+        List<ClusterConfig.Member> remaining = new ArrayList<>(pool);
+        List<ClusterConfig.Member> selected = new ArrayList<>();
+
+        for (int i = 0; i < count && !remaining.isEmpty(); i++) {
+            // 计算总权重
+            int totalWeight = 0;
+            for (var m : remaining) {
+                totalWeight += m.weight();
+            }
+            if (totalWeight <= 0) {
+                // 权重全为0，随机等概率选一个
+                int idx = random.nextInt(remaining.size());
+                selected.add(remaining.remove(idx));
+                continue;
+            }
+            int r = random.nextInt(totalWeight);
+            int cumulative = 0;
+            for (int j = 0; j < remaining.size(); j++) {
+                cumulative += remaining.get(j).weight();
+                if (r < cumulative) {
+                    selected.add(remaining.remove(j));
+                    break;
+                }
+            }
+        }
+        return selected;
     }
 
     @Override
