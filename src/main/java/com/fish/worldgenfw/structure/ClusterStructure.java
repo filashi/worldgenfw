@@ -16,7 +16,7 @@ import net.minecraft.world.level.levelgen.structure.pieces.StructurePiecesBuilde
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
 import org.slf4j.Logger;
 
-import java.util.Optional;
+import java.util.*;
 
 public class ClusterStructure extends Structure {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -37,33 +37,62 @@ public class ClusterStructure extends Structure {
 
     @Override
     protected Optional<GenerationStub> findGenerationPoint(GenerationContext context) {
-        // 从蓝图配置中获取集群成员（蓝图已在服务器启动时加载）
         var blueprintOpt = ClusterConfig.getInstance().getBlueprint(clusterId);
         if (blueprintOpt.isEmpty()) {
-            LOGGER.warn("Cluster blueprint not found for ID: {}", clusterId);
+            LOGGER.warn("Cluster blueprint not found: {}", clusterId);
             return Optional.empty();
         }
+        var blueprint = blueprintOpt.get();
 
         ChunkPos chunkPos = context.chunkPos();
         BlockPos origin = chunkPos.getMiddleBlockPosition(0);
         StructureTemplateManager templateManager = context.structureTemplateManager();
         RandomState randomState = context.randomState();
 
+        List<ClusterConfig.Member> members = blueprint.members();
+
+        // 判断布局模式
+        boolean isAutoLayout = "random_pack".equals(blueprint.layout());
+        if (isAutoLayout) {
+            // 自动布局：收集模板ID，调用引擎计算偏移
+            List<String> templateIds = new ArrayList<>();
+            for (var m : members) {
+                templateIds.add(m.template());
+            }
+            int sep = blueprint.minSeparation() > 0 ? blueprint.minSeparation() : 8;
+            List<BlockPos> offsets = LayoutEngine.computeOffsets(templateIds, sep, templateManager);
+
+            // 重新构造成员列表（带自动计算的偏移）
+            List<ClusterConfig.Member> autoMembers = new ArrayList<>();
+            for (int i = 0; i < members.size(); i++) {
+                var m = members.get(i);
+                BlockPos off = offsets.get(i);
+                autoMembers.add(new ClusterConfig.Member(
+                        m.template(),
+                        new int[]{ off.getX(), off.getY(), off.getZ() },
+                        m.rotation()
+                ));
+            }
+            members = autoMembers;
+        }
+
+        // 统一处理（无论是手动偏移还是自动计算）
+        final var finalMembers = members;
         return Optional.of(new GenerationStub(origin, piecesBuilder -> {
-            for (var member : blueprintOpt.get().members()) {
-                // 为每个成员创建一个独立的 ClusterPiece
+            for (var member : finalMembers) {
+                int[] offset = member.offset();
                 ClusterPiece piece = new ClusterPiece(
                         templateManager,
                         randomState,
                         member.template(),
-                        member.offset(),
+                        offset,
                         new BoundingBox(
-                                origin.getX() + member.offset()[0] - 8, origin.getY() + member.offset()[1] - 8,
-                                origin.getZ() + member.offset()[2] - 8,
-                                origin.getX() + member.offset()[0] + 8, origin.getY() + member.offset()[1] + 255,
-                                origin.getZ() + member.offset()[2] + 8
+                                origin.getX() + offset[0] - 8, origin.getY() + offset[1] - 8,
+                                origin.getZ() + offset[2] - 8,
+                                origin.getX() + offset[0] + 8, origin.getY() + offset[1] + 255,
+                                origin.getZ() + offset[2] + 8
                         ),
-                        true   // deferredMode
+                        true
                 );
                 piecesBuilder.addPiece(piece);
             }
