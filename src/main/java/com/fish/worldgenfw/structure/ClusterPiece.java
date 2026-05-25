@@ -3,7 +3,7 @@ package com.fish.worldgenfw.structure;
 import com.fish.worldgenfw.WorldGenFw;
 import com.mojang.logging.LogUtils;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
+import net.minecraft.core.Vec3i;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -12,6 +12,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -30,7 +31,6 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ClusterPiece extends StructurePiece {
     private static final Logger LOGGER = LogUtils.getLogger();
 
-    // 任务去重：键格式 "templateId@x,y,z"
     private static final ConcurrentHashMap<String, Boolean> submittedTasks = new ConcurrentHashMap<>();
 
     private final String templateId;
@@ -38,9 +38,8 @@ public class ClusterPiece extends StructurePiece {
     private final StructureTemplateManager templateManager;
     private final RandomState randomState;
     private final boolean deferredMode;
-    private final int yOffset;   // Y 方向额外偏移
+    private final int yOffset;
 
-    // 从 NBT 反序列化
     public ClusterPiece(CompoundTag tag) {
         super(WorldGenFw.CLUSTER_PIECE_TYPE.get(), tag);
         this.templateId = tag.getString("TemplateId");
@@ -51,7 +50,6 @@ public class ClusterPiece extends StructurePiece {
         this.yOffset = tag.contains("YOffset") ? tag.getInt("YOffset") : -1;
     }
 
-    // 主要构造函数
     public ClusterPiece(StructureTemplateManager templateManager, RandomState randomState,
                         String templateId, int[] offset, BoundingBox bounds, boolean deferredMode,
                         int yOffset) {
@@ -80,7 +78,6 @@ public class ClusterPiece extends StructurePiece {
             return;
         }
 
-        // 计算放置坐标（基于 piecePos 和蓝图中定义的偏移）
         BlockPos targetXZ = piecePos.offset(offset[0], 0, offset[2]);
         int surfaceY = chunkGenerator.getFirstOccupiedHeight(
                 targetXZ.getX(), targetXZ.getZ(),
@@ -88,18 +85,15 @@ public class ClusterPiece extends StructurePiece {
                 worldGenLevel,
                 randomState
         );
-        // 最终 Y 坐标 = 地表高度 + 用户指定的 yOffset（默认 -1 使建筑下沉一格）
         BlockPos targetPos = new BlockPos(targetXZ.getX(), surfaceY + yOffset, targetXZ.getZ());
 
         ResourceLocation location = ResourceLocation.parse(templateId);
-        Rotation rotation = Rotation.NONE; // 未来可从蓝图读取旋转值
+        Rotation rotation = Rotation.NONE;
 
         if (deferredMode) {
-            // 延迟模式：通过 WorldGenRegion 获取 ServerLevel，在主线程安全放置
             if (worldGenLevel instanceof WorldGenRegion region) {
                 ServerLevel level = region.getLevel();
 
-                // 任务去重：避免因多线程调用导致同一位置重复提交
                 String taskKey = templateId + "@" + targetPos.getX() + "," + targetPos.getY() + "," + targetPos.getZ();
                 if (submittedTasks.putIfAbsent(taskKey, Boolean.TRUE) != null) {
                     LOGGER.warn("Task already submitted for {} at {}, skipping duplicate.", templateId, targetPos);
@@ -114,28 +108,19 @@ public class ClusterPiece extends StructurePiece {
                     }
                     StructureTemplate template = templateOpt.get();
 
-                    // ========== 拼图方块检测 (基于 NBT) ==========
-                    List<JigsawDetector.JigsawInfo> jigsaws = JigsawDetector.detectFromNBT(location, level.getServer());
-                    boolean hasDoor = JigsawDetector.hasDoors(location, level.getServer());
-                    JigsawDetector.JigsawInfo selected = JigsawDetector.selectConnectionPoint(jigsaws, location, level.getServer());
-                    if (selected != null) {
-                        Direction worldDir = JigsawDetector.getWorldDirection(selected.facing(), rotation);
-                        LOGGER.info("[JigsawDetect] Template: {} | Jigsaw at local {} | Has door: {} | Selected world direction: {}",
-                                templateId, selected.pos(), hasDoor, worldDir.getName());
-                    } else {
-                        LOGGER.info("[JigsawDetect] Template: {} | No jigsaw blocks found.", templateId);
-                    }
-                    // ============================================
-
+                    // 拼图检测（已省略打印，可保留）
                     StructurePlaceSettings settings = new StructurePlaceSettings()
                             .setRotation(rotation)
                             .setIgnoreEntities(false);
                     template.placeInWorld(level, targetPos, targetPos, settings, level.getRandom(), 2);
+
+                    // 移除拼图方块
+                    removeJigsawBlocks(level, template, targetPos, rotation);
+
                     LOGGER.info("Deferred placed {} at {}", templateId, targetPos);
                 });
             }
         } else {
-            // 常规放置（小建筑、小间距），同样加入去重
             String taskKey = templateId + "@" + targetPos.getX() + "," + targetPos.getY() + "," + targetPos.getZ();
             if (submittedTasks.putIfAbsent(taskKey, Boolean.TRUE) != null) {
                 LOGGER.warn("Task already submitted for {} at {}, skipping duplicate.", templateId, targetPos);
@@ -145,16 +130,29 @@ public class ClusterPiece extends StructurePiece {
             Optional<StructureTemplate> templateOpt = templateManager.get(location);
             if (templateOpt.isPresent()) {
                 StructureTemplate template = templateOpt.get();
-
-                // 拼图方块检测（常规模式也做，但需要获取 Server 实例，这里可能无法直接获取，可跳过）
-                // 由于常规模式下可能没有 Server 实例，暂时省略检测，或以后实现。为简洁，此处跳过。
-                // 若需要，可传入 Server 实例，但当前 deferredMode 为 true 所以常规模式不会被使用。
-
                 StructurePlaceSettings settings = new StructurePlaceSettings().setRotation(rotation);
                 template.placeInWorld(worldGenLevel, targetPos, targetPos, settings, random, 2);
+                // 常规模式下 worldGenLevel 是 WorldGenRegion，可尝试移除拼图
+                if (worldGenLevel instanceof ServerLevel serverLevel) {
+                    removeJigsawBlocks(serverLevel, template, targetPos, rotation);
+                }
                 LOGGER.info("Placed {} at {}", templateId, targetPos);
             } else {
                 LOGGER.error("Template not found: {}", location);
+            }
+        }
+    }
+
+    /**
+     * 移除模板放置后残留的拼图方块。
+     */
+    private static void removeJigsawBlocks(ServerLevel level, StructureTemplate template, BlockPos pos, Rotation rotation) {
+        Vec3i size = template.getSize(rotation);
+        BlockPos min = pos;
+        BlockPos max = pos.offset(size).offset(-1, -1, -1);
+        for (BlockPos p : BlockPos.betweenClosed(min, max)) {
+            if (level.getBlockState(p).is(Blocks.JIGSAW)) {
+                level.setBlock(p, Blocks.AIR.defaultBlockState(), 2);
             }
         }
     }
