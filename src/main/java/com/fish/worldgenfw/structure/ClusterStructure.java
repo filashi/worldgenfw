@@ -53,9 +53,7 @@ public class ClusterStructure extends Structure {
         RandomState randomState = context.randomState();
         RandomSource random = context.random();
 
-        List<ClusterConfig.Member> members = new ArrayList<>(blueprint.members());
-
-        // 获取中心尺寸阈值
+        // 1. 获取中心尺寸阈值
         double thresholdHalfExtent = 0;
         double configuredThreshold = blueprint.centerSizeThreshold();
         if (configuredThreshold <= 0) {
@@ -68,9 +66,10 @@ public class ClusterStructure extends Structure {
             thresholdHalfExtent = configuredThreshold;
         }
 
-        // 过滤有效模板并动态设置 isCenter
-        List<ClusterConfig.Member> validMembers = new ArrayList<>();
-        for (var m : members) {
+        // 2. 过滤有效模板并动态设置 isCenter
+        List<ClusterConfig.Member> rawMembers = blueprint.members();
+        List<ClusterConfig.Member> validPool = new ArrayList<>();
+        for (var m : rawMembers) {
             var res = ResourceLocation.parse(m.template());
             if (templateManager.get(res).isPresent()) {
                 boolean effectiveIsCenter = m.isCenter();
@@ -78,7 +77,7 @@ public class ClusterStructure extends Structure {
                     double half = LayoutEngine.getBuildingHalfExtent(m.template(), templateManager);
                     if (half >= thresholdHalfExtent) effectiveIsCenter = true;
                 }
-                validMembers.add(new ClusterConfig.Member(
+                validPool.add(new ClusterConfig.Member(
                         m.template(), m.offset(), m.rotation(), m.yOffset(), m.weight(), effectiveIsCenter
                 ));
             } else {
@@ -86,49 +85,87 @@ public class ClusterStructure extends Structure {
             }
         }
 
-        if (validMembers.isEmpty()) {
+        if (validPool.isEmpty()) {
             LOGGER.error("No valid templates in cluster {}, aborting.", clusterId);
             return Optional.empty();
         }
 
-        // 自动布局决策
+        // 3. 确定目标抽取数量
+        int targetCount;
         boolean autoLayout = blueprint.autoLayout();
         String layoutType = blueprint.layout();
         Map<String, Object> layoutParams = blueprint.layoutParams();
 
         if (autoLayout) {
-            int count = validMembers.size();
+            int count = validPool.size();
             if (count < 3) {
                 LOGGER.warn("Cluster {} has only {} valid members (<3), aborting.", clusterId, count);
                 return Optional.empty();
             }
 
-            boolean hasCenterCandidate = validMembers.stream().anyMatch(ClusterConfig.Member::isCenter);
-
+            boolean hasCenterCandidate = validPool.stream().anyMatch(ClusterConfig.Member::isCenter);
             if (hasCenterCandidate) {
-                // 存在中心候选，强制环形/雪花，且建筑数至少 9
                 int min = Math.max(blueprint.minPoolSize(), 9);
                 int max = Math.max(min, blueprint.maxPoolSize());
                 max = Math.min(max, count);
                 if (min > max) min = max;
-                int actualPoolSize = min + random.nextInt(max - min + 1);
-                members = weightedRandomSelectWithCenter(validMembers, actualPoolSize, random);
-                LOGGER.info("Auto layout: selected {} members with center for cluster {}", members.size(), clusterId);
+                targetCount = min + random.nextInt(max - min + 1);
+            } else {
+                int min = blueprint.minPoolSize();
+                int max = Math.min(blueprint.maxPoolSize(), count);
+                if (max < min) max = min;
+                targetCount = min + random.nextInt(max - min + 1);
+            }
+        } else {
+            targetCount = blueprint.poolSize();
+            if (targetCount <= 0 && blueprint.maxPoolSize() > 0) {
+                int min = Math.max(1, blueprint.minPoolSize());
+                int max = Math.min(blueprint.maxPoolSize(), validPool.size());
+                if (min > max) min = max;
+                targetCount = min + random.nextInt(max - min + 1);
+            }
+            if (targetCount <= 0) targetCount = validPool.size();
+        }
 
-                // 随机选择 circle 或 snowflake
+        // 4. 抽取成员
+        List<ClusterConfig.Member> selectedMembers;
+        if (autoLayout) {
+            boolean hasCenterCandidate = validPool.stream().anyMatch(ClusterConfig.Member::isCenter);
+            if (hasCenterCandidate && targetCount >= 9) {
+                selectedMembers = weightedRandomSelectWithCenter(validPool, targetCount, random);
+                if (selectedMembers.stream().noneMatch(ClusterConfig.Member::isCenter)) {
+                    LOGGER.warn("Failed to select a center, falling back to normal selection.");
+                    selectedMembers = weightedRandomSelect(validPool, targetCount, random);
+                }
+            } else {
+                selectedMembers = weightedRandomSelect(validPool, targetCount, random);
+            }
+        } else {
+            selectedMembers = weightedRandomSelect(validPool, targetCount, random);
+        }
+
+        // 补齐不足数量
+        if (selectedMembers.size() < targetCount) {
+            List<ClusterConfig.Member> remaining = new ArrayList<>(validPool);
+            remaining.removeAll(selectedMembers);
+            while (selectedMembers.size() < targetCount && !remaining.isEmpty()) {
+                selectedMembers.add(remaining.remove(random.nextInt(remaining.size())));
+            }
+        }
+
+        // 5. 自动布局参数决策
+        if (autoLayout) {
+            if (selectedMembers.stream().anyMatch(ClusterConfig.Member::isCenter)) {
                 layoutType = random.nextBoolean() ? "circle" : "snowflake";
-
-                // 从结果中随机选一个中心
                 String centerId = null;
                 List<String> centers = new ArrayList<>();
-                for (var m : members) {
+                for (var m : selectedMembers) {
                     if (m.isCenter()) centers.add(m.template());
                 }
                 if (!centers.isEmpty()) {
                     centerId = centers.get(random.nextInt(centers.size()));
                 }
 
-                // 读取中心额外间距，可从 layoutParams 获取，否则默认 5
                 int centerExtraMargin = 5;
                 if (blueprint.layoutParams() != null && blueprint.layoutParams().containsKey("centerExtraMargin")) {
                     centerExtraMargin = ((Number) blueprint.layoutParams().get("centerExtraMargin")).intValue();
@@ -139,27 +176,17 @@ public class ClusterStructure extends Structure {
                     layoutParams.put("radius", 0);
                     layoutParams.put("startAngle", 0);
                 } else {
-                    layoutParams.put("branches", 4 + random.nextInt(3)); // 4~6
+                    layoutParams.put("branches", 4 + random.nextInt(3));
                     layoutParams.put("branchLength", 0);
                     layoutParams.put("branchSpacing", 0);
                 }
                 layoutParams.put("centerId", centerId);
                 layoutParams.put("centerExtraMargin", centerExtraMargin);
             } else {
-                // 无中心候选，使用 random_pack 或 grid
-                if (count < 2) {
-                    LOGGER.warn("Cluster {} has only {} valid members, aborting.", clusterId, count);
-                    return Optional.empty();
-                }
-                int min = blueprint.minPoolSize();
-                int max = Math.min(blueprint.maxPoolSize(), count);
-                if (max < min) max = min;
-                int actualPoolSize = min + random.nextInt(max - min + 1);
-                members = weightedRandomSelect(validMembers, actualPoolSize, random);
                 layoutType = random.nextBoolean() ? "random_pack" : "grid";
                 layoutParams = new HashMap<>();
                 if ("grid".equals(layoutType)) {
-                    int cols = (int) Math.ceil(Math.sqrt(members.size()));
+                    int cols = (int) Math.ceil(Math.sqrt(selectedMembers.size()));
                     layoutParams.put("rows", 0);
                     layoutParams.put("cols", cols);
                     layoutParams.put("spacingX", 0);
@@ -169,42 +196,24 @@ public class ClusterStructure extends Structure {
                 layoutParams.put("centerExtraMargin", 0);
             }
         } else {
-            // 手动模式，抽取逻辑沿用原有
-            int actualPoolSize = blueprint.poolSize();
-            if (actualPoolSize <= 0 && blueprint.maxPoolSize() > 0) {
-                int min = Math.max(1, blueprint.minPoolSize());
-                int max = Math.min(blueprint.maxPoolSize(), validMembers.size());
-                if (min > max) min = max;
-                actualPoolSize = min + random.nextInt(max - min + 1);
-            }
-            if (actualPoolSize > 0 && actualPoolSize < validMembers.size()) {
-                members = weightedRandomSelect(validMembers, actualPoolSize, random);
-            } else {
-                members = validMembers;
-            }
-
-            // 手动模式下 centerExtraMargin 也可从 layoutParams 读取，若未提供则默认 5
+            if (layoutParams == null) layoutParams = new HashMap<>();
             int centerExtraMargin = 5;
-            if (layoutParams != null && layoutParams.containsKey("centerExtraMargin")) {
+            if (layoutParams.containsKey("centerExtraMargin")) {
                 centerExtraMargin = ((Number) layoutParams.get("centerExtraMargin")).intValue();
             }
-            if (layoutParams == null) layoutParams = new HashMap<>();
             layoutParams.put("centerExtraMargin", centerExtraMargin);
         }
 
-        // 收集最终有效模板 ID
+        // 6. 收集模板 ID
         List<String> validTemplateIds = new ArrayList<>();
-        for (var m : members) {
+        for (var m : selectedMembers) {
             validTemplateIds.add(m.template());
         }
-
-        if (validTemplateIds.isEmpty()) {
-            return Optional.empty();
-        }
+        if (validTemplateIds.isEmpty()) return Optional.empty();
 
         int sep = blueprint.minSeparation() > 0 ? blueprint.minSeparation() : 8;
 
-        // 选择布局策略
+        // 7. 选择布局策略并计算偏移
         Map<String, BlockPos> offsetMap;
         LayoutStrategy strategy = null;
         LayoutParams params = null;
@@ -261,9 +270,9 @@ public class ClusterStructure extends Structure {
             offsetMap = LayoutEngine.computeOffsets(validTemplateIds, sep, templateManager, random);
         }
 
-        // 重建最终成员列表（带计算后的偏移）
+        // 8. 重建最终成员列表
         List<ClusterConfig.Member> finalMembers = new ArrayList<>();
-        for (var m : members) {
+        for (var m : selectedMembers) {
             BlockPos off = offsetMap.get(m.template());
             if (off != null) {
                 finalMembers.add(new ClusterConfig.Member(
@@ -276,10 +285,7 @@ public class ClusterStructure extends Structure {
                 ));
             }
         }
-
-        if (finalMembers.isEmpty()) {
-            return Optional.empty();
-        }
+        if (finalMembers.isEmpty()) return Optional.empty();
 
         return Optional.of(new GenerationStub(origin, piecesBuilder -> {
             for (var member : finalMembers) {
@@ -329,7 +335,6 @@ public class ClusterStructure extends Structure {
 
     private static List<ClusterConfig.Member> weightedRandomSelectWithCenter(
             List<ClusterConfig.Member> pool, int count, RandomSource random) {
-        // 分离 center 和非 center
         List<ClusterConfig.Member> centers = new ArrayList<>();
         List<ClusterConfig.Member> nonCenters = new ArrayList<>();
         for (var m : pool) {
@@ -341,7 +346,6 @@ public class ClusterStructure extends Structure {
             return weightedRandomSelect(pool, count, random);
         }
 
-        // 随机选一个中心
         int totalWeightC = 0;
         for (var c : centers) totalWeightC += c.weight();
         int r = random.nextInt(totalWeightC);
@@ -355,7 +359,6 @@ public class ClusterStructure extends Structure {
             }
         }
 
-        // 从剩余成员中抽取 count-1 个
         List<ClusterConfig.Member> remaining = new ArrayList<>(pool);
         remaining.remove(selectedCenter);
         List<ClusterConfig.Member> others = weightedRandomSelect(remaining, count - 1, random);
