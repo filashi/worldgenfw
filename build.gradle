@@ -55,11 +55,11 @@ repositories {
 }
 
 dependencies {
-    compileOnly "maven.modrinth:lithostitched:1.7.7-neoforge-21.1"
+    implementation "maven.modrinth:lithostitched:1.7.7-neoforge-21.1"
 }
 
 // 7. 任务配置
 tasks.withType(JavaCompile).configureEach {
-    options.encoding = 'UTF-8' // 统一编码，避免乱码
-    it.options.compilerArgs.add("-Acustom.refmap=${project.projectDir}/src/main/resources/worldgenfw.mixins.json")
+    options.encoding = 'UTF-8'
+    options.compilerArgs.add("-Acustom.refmap=${project.projectDir}/src/main/resources/worldgenfw.mixins.json")
 }

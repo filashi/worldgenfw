@@ -1,0 +1,5 @@
+{
+  "name": "worldgenfw:large_structures",
+  "fallback": "minecraft:empty",
+  "elements": []
+}

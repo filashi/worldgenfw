@@ -1,0 +1,5 @@
+{
+  "name": "worldgenfw:trigger_pool",
+  "fallback": "minecraft:empty",
+  "elements": []
+}
